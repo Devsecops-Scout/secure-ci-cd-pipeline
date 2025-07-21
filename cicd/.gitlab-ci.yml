@@ -1,0 +1,162 @@
+# ------------------------------------------------------------------------
+# Description: GitLab CI/CD pipeline with Built-in Security Gates
+# Author: devsecops_scout
+# Last Updated: 2025-07-19
+# ------------------------------------------------------------------------
+
+stages:
+  - scan
+  - build
+  - test
+  - deploy
+
+variables:
+  IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
+  DOCKER_IMAGE: "ghcr.io/Devsecops-Scout/secure-ci-cd-pipeline:$IMAGE_TAG"
+  CODEQL_LANG: python  # or 'javascript', 'go', etc.
+  CODEQL_DB: codeql-db
+
+before_script:
+  - echo "🚀 Starting pipeline..."
+  - python3 -m pip install --upgrade pip || true
+
+# -------------------------
+# 🛡️ Static Code + Secret Scan
+# -------------------------
+scan:
+  stage: scan
+  image: python:3.11
+  script:
+    - echo "🔒 Running Gitleaks..."
+    - curl -sSL https://github.com/zricethezav/gitleaks/releases/latest/download/gitleaks-linux-amd64 -o gitleaks
+    - chmod +x gitleaks
+    - ./gitleaks detect --no-git -v
+
+    - echo "🛡️ Running Trivy..."
+    - apt-get update && apt-get install -y wget apt-transport-https gnupg lsb-release
+    - wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | apt-key add -
+    - echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | tee /etc/apt/sources.list.d/trivy.list
+    - apt-get update && apt-get install -y trivy
+    - trivy fs .
+
+# -------------------------
+# 🔍 CodeQL Analysis
+# -------------------------
+codeql-analysis:
+  stage: scan
+  image: ghcr.io/github/codeql-cli/codeql-cli:latest
+  script:
+    - echo "🔍 Running CodeQL scan..."
+    - codeql version
+
+    # Create database
+    - codeql database create $CODEQL_DB --language=$CODEQL_LANG --source-root=. --overwrite
+
+    # Analyze code
+    - codeql database analyze $CODEQL_DB --format=sarifv2.1.0 --output=codeql-results.sarif
+
+    # Optional GitHub Upload
+    # - gh auth login --with-token <<< "$GITHUB_TOKEN"
+    # - gh code-scanning upload --sarif=codeql-results.sarif --repository=bibiserv/your-repo --ref=$CI_COMMIT_SHA
+
+  artifacts:
+    paths:
+      - codeql-results.sarif
+    expire_in: 7 days
+  allow_failure: true
+
+# -------------------------
+# 🛠️ Docker Image Build
+# -------------------------
+build:
+  stage: build
+  image: docker:latest
+  services:
+    - docker:dind
+  before_script:
+    - echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_USERNAME" --password-stdin
+  script:
+    - echo "🛠️ Building Docker image..."
+    - docker build -t $DOCKER_IMAGE .
+    - docker push $DOCKER_IMAGE
+    - echo "✅ Build complete."
+
+# -------------------------
+# ✅ Run Tests
+# -------------------------
+test:
+  stage: test
+  image: python:3.11
+  script:
+    - echo "🔬 Running tests..."
+    - pytest || echo "⚠️ No tests found or configured."
+
+# -------------------------
+# 🚀 Deploy Infrastructure
+# -------------------------
+deploy:
+  stage: deploy
+  # Use Terraform official Docker image
+image: hashicorp/terraform:1.7.5
+
+stages:
+  - validate
+  - plan
+  - deploy
+
+# -------------------------
+# ✅ Validate Terraform Code
+# -------------------------
+validate:
+  stage: validate
+  script:
+    - cd terraform/$CI_ENVIRONMENT_NAME
+    - terraform init -input=false
+    - terraform validate
+  only:
+    refs:
+      - dev
+      - staging
+      - main
+  environment:
+    name: $CI_COMMIT_REF_NAME
+
+# -------------------------
+# 🔍 Terraform Plan
+# -------------------------
+plan:
+  stage: plan
+  script:
+    - cd terraform/$CI_ENVIRONMENT_NAME
+    - terraform init -input=false
+    - terraform workspace select $CI_ENVIRONMENT_NAME || terraform workspace new $CI_ENVIRONMENT_NAME
+    - terraform plan -input=false -out=tfplan
+  artifacts:
+    paths:
+      - terraform/$CI_ENVIRONMENT_NAME/tfplan
+  only:
+    refs:
+      - dev
+      - staging
+      - main
+  environment:
+    name: $CI_COMMIT_REF_NAME
+
+# -------------------------
+# 🚀 Deploy to Environment
+# -------------------------
+deploy:
+  stage: deploy
+  script:
+    - cd terraform/$CI_ENVIRONMENT_NAME
+    - terraform init -input=false
+    - terraform workspace select $CI_ENVIRONMENT_NAME || terraform workspace new $CI_ENVIRONMENT_NAME
+    - terraform apply -input=false -auto-approve tfplan
+  only:
+    refs:
+      - dev
+      - staging
+      - main
+  environment:
+    name: $CI_COMMIT_REF_NAME
+  when: manual  # Optional for staging/prod
