@@ -1,13 +1,21 @@
+# ------------------------------------------------------------------------
+# Description: GitLab CI/CD pipeline with Built-in Security Gates
+# Author: devsecops_scout
+# Last Updated: 2025-07-21
+# ------------------------------------------------------------------------
+
 stages:
   - scan
   - build
   - test
+  - validate
+  - plan
   - deploy
 
 variables:
   IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
   DOCKER_IMAGE: "ghcr.io/Devsecops-Scout/secure-ci-cd-pipeline:$IMAGE_TAG"
-  CODEQL_LANG: python  # or 'javascript', 'go', etc.
+  CODEQL_LANG: python
   CODEQL_DB: codeql-db
 
 before_script:
@@ -42,17 +50,8 @@ codeql-analysis:
   script:
     - echo "🔍 Running CodeQL scan..."
     - codeql version
-
-    # Create database
     - codeql database create $CODEQL_DB --language=$CODEQL_LANG --source-root=. --overwrite
-
-    # Analyze code
     - codeql database analyze $CODEQL_DB --format=sarifv2.1.0 --output=codeql-results.sarif
-
-    # Optional GitHub Upload
-    # - gh auth login --with-token <<< "$GITHUB_TOKEN"
-    # - gh code-scanning upload --sarif=codeql-results.sarif --repository=bibiserv/your-repo --ref=$CI_COMMIT_SHA
-
   artifacts:
     paths:
       - codeql-results.sarif
@@ -73,7 +72,6 @@ build:
     - echo "🛠️ Building Docker image..."
     - docker build -t $DOCKER_IMAGE .
     - docker push $DOCKER_IMAGE
-    - echo "✅ Build complete."
 
 # -------------------------
 # ✅ Run Tests
@@ -86,32 +84,17 @@ test:
     - pytest || echo "⚠️ No tests found or configured."
 
 # -------------------------
-# 🚀 Deploy Infrastructure
-# -------------------------
-deploy:
-  stage: deploy
-  # Use Terraform official Docker image
-image: hashicorp/terraform:1.7.5
-
-stages:
-  - validate
-  - plan
-  - deploy
-
-# -------------------------
 # ✅ Validate Terraform Code
 # -------------------------
 validate:
   stage: validate
+  image: hashicorp/terraform:1.7.5
   script:
     - cd terraform/$CI_ENVIRONMENT_NAME
     - terraform init -input=false
     - terraform validate
   only:
-    refs:
-      - dev
-      - staging
-      - main
+    refs: [dev, staging, main]
   environment:
     name: $CI_COMMIT_REF_NAME
 
@@ -120,6 +103,7 @@ validate:
 # -------------------------
 plan:
   stage: plan
+  image: hashicorp/terraform:1.7.5
   script:
     - cd terraform/$CI_ENVIRONMENT_NAME
     - terraform init -input=false
@@ -129,10 +113,7 @@ plan:
     paths:
       - terraform/$CI_ENVIRONMENT_NAME/tfplan
   only:
-    refs:
-      - dev
-      - staging
-      - main
+    refs: [dev, staging, main]
   environment:
     name: $CI_COMMIT_REF_NAME
 
@@ -141,16 +122,14 @@ plan:
 # -------------------------
 deploy:
   stage: deploy
+  image: hashicorp/terraform:1.7.5
   script:
     - cd terraform/$CI_ENVIRONMENT_NAME
     - terraform init -input=false
     - terraform workspace select $CI_ENVIRONMENT_NAME || terraform workspace new $CI_ENVIRONMENT_NAME
     - terraform apply -input=false -auto-approve tfplan
   only:
-    refs:
-      - dev
-      - staging
-      - main
+    refs: [dev, staging, main]
   environment:
     name: $CI_COMMIT_REF_NAME
-  when: manual  # Optional for staging/prod
+  when: manual
