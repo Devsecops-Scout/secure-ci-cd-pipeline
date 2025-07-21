@@ -1,6 +1,6 @@
 # ------------------------------------------------------------------------
 # Description: Secure CI/CD Pipeline with Automated Security Gates
-# Author: devsecops_scout
+# Author: Devsecops-Scout
 # Last Updated: 2025-07-19
 # ------------------------------------------------------------------------
 

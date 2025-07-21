@@ -1,6 +1,6 @@
 # ------------------------------------------------------------------------
 # Description: Contributing Guide
-# Author: devsecops_scout
+# Author: Devsecops-Scout
 # Last Updated: 2025-07-19
 # ------------------------------------------------------------------------
 
