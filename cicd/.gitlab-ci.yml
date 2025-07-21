@@ -1,19 +1,21 @@
 # ------------------------------------------------------------------------
 # Description: GitLab CI/CD pipeline with Built-in Security Gates
 # Author: devsecops_scout
-# Last Updated: 2025-07-19
+# Last Updated: 2025-07-21
 # ------------------------------------------------------------------------
 
 stages:
   - scan
   - build
   - test
+  - validate
+  - plan
   - deploy
 
 variables:
   IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
   DOCKER_IMAGE: "ghcr.io/Devsecops-Scout/secure-ci-cd-pipeline:$IMAGE_TAG"
-  CODEQL_LANG: python  # or 'javascript', 'go', etc.
+  CODEQL_LANG: python
   CODEQL_DB: codeql-db
 
 before_script:
@@ -26,16 +28,21 @@ before_script:
 scan:
   stage: scan
   image: python:3.11
+  before_script:
+    - apt-get update && apt-get install -y curl wget unzip apt-transport-https gnupg lsb-release
   script:
     - echo "🔒 Running Gitleaks..."
-    - curl -sSL https://github.com/zricethezav/gitleaks/releases/latest/download/gitleaks-linux-amd64 -o gitleaks
+    - curl -s https://api.github.com/repos/gitleaks/gitleaks/releases/latest | \
+        grep browser_download_url | grep linux-amd64 | \
+        cut -d '"' -f 4 | wget -i - -O gitleaks
     - chmod +x gitleaks
+    - ./gitleaks version
     - ./gitleaks detect --no-git -v
 
     - echo "🛡️ Running Trivy..."
-    - apt-get update && apt-get install -y wget apt-transport-https gnupg lsb-release
     - wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | apt-key add -
-    - echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | tee /etc/apt/sources.list.d/trivy.list
+    - echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | \
+        tee /etc/apt/sources.list.d/trivy.list
     - apt-get update && apt-get install -y trivy
     - trivy fs .
 
@@ -44,21 +51,17 @@ scan:
 # -------------------------
 codeql-analysis:
   stage: scan
-  image: ghcr.io/github/codeql-cli/codeql-cli:latest
+  image: ubuntu:22.04
+  before_script:
+    - apt-get update && apt-get install -y curl unzip
+    - curl -L -o codeql.zip https://github.com/github/codeql-cli-binaries/releases/latest/download/codeql-linux64.zip
+    - unzip codeql.zip -d /opt
+    - export PATH="/opt/codeql:$PATH"
   script:
     - echo "🔍 Running CodeQL scan..."
     - codeql version
-
-    # Create database
     - codeql database create $CODEQL_DB --language=$CODEQL_LANG --source-root=. --overwrite
-
-    # Analyze code
     - codeql database analyze $CODEQL_DB --format=sarifv2.1.0 --output=codeql-results.sarif
-
-    # Optional GitHub Upload
-    # - gh auth login --with-token <<< "$GITHUB_TOKEN"
-    # - gh code-scanning upload --sarif=codeql-results.sarif --repository=bibiserv/your-repo --ref=$CI_COMMIT_SHA
-
   artifacts:
     paths:
       - codeql-results.sarif
@@ -79,7 +82,6 @@ build:
     - echo "🛠️ Building Docker image..."
     - docker build -t $DOCKER_IMAGE .
     - docker push $DOCKER_IMAGE
-    - echo "✅ Build complete."
 
 # -------------------------
 # ✅ Run Tests
@@ -92,32 +94,17 @@ test:
     - pytest || echo "⚠️ No tests found or configured."
 
 # -------------------------
-# 🚀 Deploy Infrastructure
-# -------------------------
-deploy:
-  stage: deploy
-  # Use Terraform official Docker image
-image: hashicorp/terraform:1.7.5
-
-stages:
-  - validate
-  - plan
-  - deploy
-
-# -------------------------
 # ✅ Validate Terraform Code
 # -------------------------
 validate:
   stage: validate
+  image: hashicorp/terraform:1.7.5
   script:
     - cd terraform/$CI_ENVIRONMENT_NAME
     - terraform init -input=false
     - terraform validate
   only:
-    refs:
-      - dev
-      - staging
-      - main
+    refs: [dev, staging, main]
   environment:
     name: $CI_COMMIT_REF_NAME
 
@@ -126,6 +113,7 @@ validate:
 # -------------------------
 plan:
   stage: plan
+  image: hashicorp/terraform:1.7.5
   script:
     - cd terraform/$CI_ENVIRONMENT_NAME
     - terraform init -input=false
@@ -135,10 +123,7 @@ plan:
     paths:
       - terraform/$CI_ENVIRONMENT_NAME/tfplan
   only:
-    refs:
-      - dev
-      - staging
-      - main
+    refs: [dev, staging, main]
   environment:
     name: $CI_COMMIT_REF_NAME
 
@@ -147,16 +132,14 @@ plan:
 # -------------------------
 deploy:
   stage: deploy
+  image: hashicorp/terraform:1.7.5
   script:
     - cd terraform/$CI_ENVIRONMENT_NAME
     - terraform init -input=false
     - terraform workspace select $CI_ENVIRONMENT_NAME || terraform workspace new $CI_ENVIRONMENT_NAME
     - terraform apply -input=false -auto-approve tfplan
   only:
-    refs:
-      - dev
-      - staging
-      - main
+    refs: [dev, staging, main]
   environment:
     name: $CI_COMMIT_REF_NAME
-  when: manual  # Optional for staging/prod
+  when: manual
