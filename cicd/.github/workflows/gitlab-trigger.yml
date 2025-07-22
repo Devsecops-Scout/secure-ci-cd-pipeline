@@ -11,4 +11,4 @@ jobs:
         with:
           host: "https://gitlab.com"
           token: ${{ secrets.TOKEN }}
-          project_id: "71770628"
+          project_id: "71821573"
