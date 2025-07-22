@@ -1,6 +1,6 @@
 # GitLab CI/CD pipeline with Built-in Security Gates (DoD/Offline Compliant)
 # Author: Devsecops-Scout
-# Last Updated: 2025-07-21
+# Last Updated: 2025-07-22
 
 stages:
   - prepare
@@ -44,16 +44,32 @@ codeql-setup:
     expire_in: 1h
 
 # -------------------------
-# 🛡️ Static Code + Secret Scan + CodeQL
+# 🛡️ Gitleaks Scan
 # -------------------------
-scan:
+gitleaks-scan:
+  stage: scan
+  image: debian:bullseye
+  before_script:
+    - apt update && apt install -y coreutils gnupg lsb-release wget
+    - cd tools
+    - sha256sum -c gitleaks.sha256
+    - chmod +x gitleaks
+    - cd ..
+  script:
+    - echo "🔒 Running Gitleaks in secure mode..."
+    - ./tools/gitleaks detect --source=. --verbose --redact
+  only:
+    - main
+
+# -------------------------
+# 🛡️ Trivy Scan
+# -------------------------
+trivy-scan:
   stage: scan
   image: debian:bullseye
   script:
-    - echo "🔒 Running Gitleaks in secure mode..."
-    - apt update && apt install -y coreutils gnupg lsb-release wget
-    - cd tools && sha256sum -c gitleaks.sha256 && chmod +x gitleaks && ./gitleaks detect --source=. --verbose --redact
     - echo "🛡️ Running Trivy..."
+    - apt update && apt install -y gnupg lsb-release wget apt-transport-https
     - wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | apt-key add -
     - echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | tee /etc/apt/sources.list.d/trivy.list
     - apt-get update && apt-get install -y trivy
@@ -61,19 +77,22 @@ scan:
   only:
     - main
 
+# -------------------------
+# 🔍 CodeQL Python Scan
+# -------------------------
 codeql-python-scan:
   stage: scan
   image: python:3.11-slim
   variables:
     PATH: "$CODEQL_HOME/codeql:$PATH"
+  dependencies:
+    - codeql-setup
   script:
     - echo "🔎 Starting CodeQL Python scan..."
     - "$CODEQL_HOME/codeql/codeql" version
     - mkdir -p codeql-workspace
     - "$CODEQL_HOME/codeql/codeql" database create codeql-workspace/codeql-db --language=python --source-root=. --command="python3 setup.py install"
     - "$CODEQL_HOME/codeql/codeql" database analyze codeql-workspace/codeql-db "$CODEQL_HOME/codeql/python-queries" --format=sarifv2.1.0 --output=codeql-report.sarif
-  dependencies:
-    - codeql-setup
   artifacts:
     paths:
       - codeql-report.sarif
@@ -117,7 +136,10 @@ validate:
     - terraform init -input=false
     - terraform validate
   only:
-    refs: [dev, staging, main]
+    refs:
+      - dev
+      - staging
+      - main
   environment:
     name: $CI_COMMIT_REF_NAME
 
@@ -136,12 +158,15 @@ plan:
     paths:
       - terraform/$CI_ENVIRONMENT_NAME/tfplan
   only:
-    refs: [dev, staging, main]
+    refs:
+      - dev
+      - staging
+      - main
   environment:
     name: $CI_COMMIT_REF_NAME
 
 # -------------------------
-# 🚀 Deploy to Environment
+# 🚀 Deploy to Environment (Manual)
 # -------------------------
 deploy:
   stage: deploy
@@ -152,7 +177,10 @@ deploy:
     - terraform workspace select $CI_ENVIRONMENT_NAME || terraform workspace new $CI_ENVIRONMENT_NAME
     - terraform apply -input=false -auto-approve tfplan
   only:
-    refs: [dev, staging, main]
+    refs:
+      - dev
+      - staging
+      - main
   environment:
     name: $CI_COMMIT_REF_NAME
   when: manual
