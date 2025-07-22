@@ -27,17 +27,18 @@ before_script:
 # -------------------------
 scan:
   stage: scan
-  image: ubuntu:latest
+gitleaks:
+  image: debian:bullseye  # Or an internal hardened base image
   before_script:
-    - apt-get update && apt-get install -y grep coreutils wget curl
-  script:
-    - echo "🔒 Running Gitleaks..."
-    - curl -s https://api.github.com/repos/gitleaks/gitleaks/releases/latest | \
-        grep browser_download_url | grep linux-amd64 | \
-        cut -d '"' -f 4 | wget -i - -O gitleaks
+    - apt update && apt install -y coreutils
+    - cd tools
+    - sha256sum -c gitleaks.sha256
     - chmod +x gitleaks
-    - ./gitleaks version
-    - ./gitleaks detect --no-git -v
+  script:
+    - echo "🔒 Running Gitleaks in secure mode..."
+    - ./tools/gitleaks detect --source=. --verbose --redact
+  only:
+    - main
 
     - echo "🛡️ Running Trivy..."
     - wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | apt-key add -
