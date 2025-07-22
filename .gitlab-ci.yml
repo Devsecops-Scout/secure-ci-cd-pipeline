@@ -1,10 +1,9 @@
-# ------------------------------------------------------------------------
-# Description: GitLab CI/CD pipeline with Built-in Security Gates
+# GitLab CI/CD pipeline with Built-in Security Gates (DoD/Offline Compliant)
 # Author: Devsecops-Scout
 # Last Updated: 2025-07-21
-# ------------------------------------------------------------------------
 
 stages:
+  - prepare
   - scan
   - build
   - test
@@ -15,6 +14,8 @@ stages:
 variables:
   IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
   DOCKER_IMAGE: "ghcr.io/Devsecops-Scout/secure-ci-cd-pipeline:$IMAGE_TAG"
+  CODEQL_HOME: "$CI_PROJECT_DIR/codeql"
+  CODEQL_EXTRACTOR_PYTHON_SCRATCH_DIR: "$CI_PROJECT_DIR/codeql-scratch"
   CODEQL_LANG: python
   CODEQL_DB: codeql-db
 
@@ -23,53 +24,60 @@ before_script:
   - python3 -m pip install --upgrade pip || true
 
 # -------------------------
-# 🛡️ Static Code + Secret Scan
+# 🔧 CodeQL Setup (Offline Bundle)
+# -------------------------
+codeql-setup:
+  stage: prepare
+  image: python:3.11-slim
+  script:
+    - apt update && apt install -y unzip curl coreutils
+    - echo "🔐 Verifying CodeQL bundle checksum..."
+    - sha256sum -c tools/codeql.zip.sha256
+    - mkdir -p "$CODEQL_HOME"
+    - unzip ./tools/codeql.zip -d "$CODEQL_HOME"
+    - mkdir -p "$CODEQL_EXTRACTOR_PYTHON_SCRATCH_DIR"
+  artifacts:
+    paths:
+      - codeql/
+      - codeql-scratch/
+      - tools/
+    expire_in: 1h
+
+# -------------------------
+# 🛡️ Static Code + Secret Scan + CodeQL
 # -------------------------
 scan:
   stage: scan
-gitleaks:
-  image: debian:bullseye  # Or an internal hardened base image
-  before_script:
-    - apt update && apt install -y coreutils
-    - cd tools
-    - sha256sum -c gitleaks.sha256
-    - chmod +x gitleaks
+  image: debian:bullseye
   script:
     - echo "🔒 Running Gitleaks in secure mode..."
-    - ./tools/gitleaks detect --source=. --verbose --redact
+    - apt update && apt install -y coreutils gnupg lsb-release wget
+    - cd tools && sha256sum -c gitleaks.sha256 && chmod +x gitleaks && ./gitleaks detect --source=. --verbose --redact
+    - echo "🛡️ Running Trivy..."
+    - wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | apt-key add -
+    - echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | tee /etc/apt/sources.list.d/trivy.list
+    - apt-get update && apt-get install -y trivy
+    - trivy fs .
   only:
     - main
 
-    - echo "🛡️ Running Trivy..."
-    - wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | apt-key add -
-    - echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | \
-        tee /etc/apt/sources.list.d/trivy.list
-    - apt-get update && apt-get install -y trivy
-    - trivy fs .
-
-# -------------------------
-# 🔍 CodeQL Analysis
-# -------------------------
-codeql-analysis:
+codeql-python-scan:
   stage: scan
   image: python:3.11-slim
   variables:
-    CODEQL_EXTRACTOR_PYTHON_SCRATCH_DIR: "$CI_PROJECT_DIR/codeql-scratch"
-  before_script:
-    - apt update && apt install -y unzip curl
-    - mkdir -p "$CODEQL_EXTRACTOR_PYTHON_SCRATCH_DIR"
-    - export PATH="/opt/codeql:$PATH"
-    - python3 --version
+    PATH: "$CODEQL_HOME/codeql:$PATH"
   script:
-    - echo "🔍 Running CodeQL scan..."
-    - codeql version
-    - codeql database create $CODEQL_DB --language=python --source-root=. --command="python3 setup.py install"
-    - codeql database analyze $CODEQL_DB --format=sarifv2.1.0 --output=codeql-results.sarif
-    - /opt/codeql/python/tools/autobuild.sh
+    - echo "🔎 Starting CodeQL Python scan..."
+    - "$CODEQL_HOME/codeql/codeql" version
+    - mkdir -p codeql-workspace
+    - "$CODEQL_HOME/codeql/codeql" database create codeql-workspace/codeql-db --language=python --source-root=. --command="python3 setup.py install"
+    - "$CODEQL_HOME/codeql/codeql" database analyze codeql-workspace/codeql-db "$CODEQL_HOME/codeql/python-queries" --format=sarifv2.1.0 --output=codeql-report.sarif
+  dependencies:
+    - codeql-setup
   artifacts:
     paths:
-      - codeql-results.sarif
-    expire_in: 7 days
+      - codeql-report.sarif
+    expire_in: 1 week
   only:
     - main
 
