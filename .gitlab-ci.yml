@@ -27,9 +27,9 @@ before_script:
 # -------------------------
 scan:
   stage: scan
-  image: python:3.11
+  image: ubuntu:latest
   before_script:
-    - apt-get update && apt-get install -y curl wget unzip apt-transport-https gnupg lsb-release
+    - apt-get update && apt-get install -y grep coreutils wget curl
   script:
     - echo "🔒 Running Gitleaks..."
     - curl -s https://api.github.com/repos/gitleaks/gitleaks/releases/latest | \
@@ -51,13 +51,16 @@ scan:
 # -------------------------
 codeql-analysis:
   stage: scan
-  image: ubuntu:22.04
+  image: python:3.11-slim
   before_script:
     - apt-get update && apt-get install -y curl unzip
     - curl -L -o codeql.zip https://github.com/github/codeql-cli-binaries/releases/latest/download/codeql-linux64.zip
     - unzip codeql.zip -d /opt
     - export PATH="/opt/codeql:$PATH"
   script:
+    - which python3
+    - python3 --version
+    - /opt/codeql/python/tools/autobuild.sh
     - echo "🔍 Running CodeQL scan..."
     - codeql version
     - codeql database create $CODEQL_DB --language=$CODEQL_LANG --source-root=. --overwrite
