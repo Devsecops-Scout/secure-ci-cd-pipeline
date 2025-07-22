@@ -53,24 +53,25 @@ gitleaks:
 codeql-analysis:
   stage: scan
   image: python:3.11-slim
+  variables:
+    CODEQL_EXTRACTOR_PYTHON_SCRATCH_DIR: "$CI_PROJECT_DIR/codeql-scratch"
   before_script:
-    - apt-get update && apt-get install -y curl unzip
-    - curl -L -o codeql.zip https://github.com/github/codeql-cli-binaries/releases/latest/download/codeql-linux64.zip
-    - unzip codeql.zip -d /opt
+    - apt update && apt install -y unzip curl
+    - mkdir -p "$CODEQL_EXTRACTOR_PYTHON_SCRATCH_DIR"
     - export PATH="/opt/codeql:$PATH"
-  script:
-    - which python3
     - python3 --version
-    - /opt/codeql/python/tools/autobuild.sh
+  script:
     - echo "🔍 Running CodeQL scan..."
     - codeql version
-    - codeql database create $CODEQL_DB --language=$CODEQL_LANG --source-root=. --overwrite
+    - codeql database create $CODEQL_DB --language=python --source-root=. --command="python3 setup.py install"
     - codeql database analyze $CODEQL_DB --format=sarifv2.1.0 --output=codeql-results.sarif
+    - /opt/codeql/python/tools/autobuild.sh
   artifacts:
     paths:
       - codeql-results.sarif
     expire_in: 7 days
-  allow_failure: true
+  only:
+    - main
 
 # -------------------------
 # 🛠️ Docker Image Build
