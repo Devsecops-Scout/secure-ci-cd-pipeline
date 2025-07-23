@@ -18,3 +18,6 @@ jobs:
           host: "https://gitlab.com"
           token: ${{ secrets.TOKEN }}
           project_id: "71821573"
+          ref: "main"
+          debug: true
+          
