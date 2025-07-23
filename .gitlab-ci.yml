@@ -92,8 +92,8 @@ codeql-python-scan:
     - $CODEQL_HOME/codeql/codeql version
     - mkdir -p codeql-workspace
     # The --command argument is used to install the Python package so that CodeQL can extract the build artifacts and dependencies for accurate analysis.
-    - "$CODEQL_HOME/codeql/codeql" database create codeql-workspace/codeql-db --language=python --source-root=. --command="pip install -r requirements.txt"
-    - "$CODEQL_HOME/codeql/codeql" database analyze codeql-workspace/codeql-db "$CODEQL_HOME/codeql/queries/python" --format=sarifv2.1.0 --output=codeql-report.sarif
+    - $CODEQL_HOME/codeql/codeql database create codeql-workspace/codeql-db --language=python --source-root=. --command="pip install -r requirements.txt"
+    - $CODEQL_HOME/codeql/codeql database analyze codeql-workspace/codeql-db "$CODEQL_HOME/codeql/queries/python" --format=sarifv2.1.0 --output=codeql-report.sarif
   artifacts:
     paths:
       - codeql-report.sarif
