@@ -16,8 +16,8 @@ jobs:
         uses: appleboy/gitlab-ci-action@v1.3.0
         with:
           host: "https://gitlab.com"
-          token: ${{ secrets.TOKEN }}
-          project_id: "71821573"
+          token: ${{ secrets.GITLAB_TOKEN }}
+          project_id: "72183642"
           ref: "main"
           debug: true
           
