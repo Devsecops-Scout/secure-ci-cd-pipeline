@@ -80,34 +80,15 @@ trivy-scan:
     - main
 
 # -------------------------
-# 🔧 CodeQL Setup (Offline + Fallback Download)
+# 🔧 CodeQL Setup 
 # -------------------------
-codeql-setup:
-  stage: prepare
-  image: python:3.11-slim
+codeql_setup:
   script:
-    - apt update && apt install -y unzip curl coreutils
-    - mkdir -p tools
-    - |
-      if [ ! -f tools/codeql.zip ]; then
-        echo "📥 CodeQL bundle not found locally, downloading..."
-        curl -L -o tools/codeql.zip https://github.com/github/codeql-cli-binaries/releases/latest/download/codeql.zip
-        curl -L -o tools/codeql.zip.sha256 https://github.com/github/codeql-cli-binaries/releases/latest/download/codeql.zip.sha256
-      else
-        echo "📦 Using pre-cached tools/codeql.zip..."
-      fi
+    - echo "📥 Downloading CodeQL bundle..."
+    - curl -L -o tools/codeql.zip https://github.com/github/codeql-cli-binaries/releases/latest/download/codeql.zip
     - echo "🔐 Verifying CodeQL bundle checksum..."
-    - sha256sum -c tools/codeql.zip.sha256 || { echo "❌ Checksum verification failed"; exit 1; }
-    - mkdir -p "$CODEQL_HOME"
-    - unzip tools/codeql.zip -d "$CODEQL_HOME"
-    - mkdir -p "$CODEQL_EXTRACTOR_PYTHON_SCRATCH_DIR"
-  artifacts:
-    paths:
-      - codeql/
-      - codeql-scratch/
-      - tools/codeql.zip
-      - tools/codeql.zip.sha256
-    expire_in: 1h
+    - echo "cb59d7821ae0c890214915699317e63d951115a6e31e042b0b29bddfa2b22dd2  codeql.zip  tools/codeql.zip" > tools/codeql.zip.sha256
+    - sha256sum -c tools/codeql.zip.sha256
 
 # -------------------------
 # 🔍 CodeQL Python Scan
