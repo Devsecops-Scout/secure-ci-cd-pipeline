@@ -82,13 +82,18 @@ trivy-scan:
 # -------------------------
 # 🔧 CodeQL Setup 
 # -------------------------
-codeql_setup:
+verify_codeql:
+  stage: verify
   script:
-  - mkdir -p tools
-  - curl -L -o tools/codeql.zip https://github.com/github/codeql-cli-binaries/releases/latest/download/codeql.zip
-  - cd tools
-  - echo "🔐 Verifying CodeQL bundle checksum..."
-  - sha256sum -c codeql.zip.sha256
+    - echo "📦 Downloading CodeQL bundle..."
+    - mkdir -p tools
+    - curl -L -o tools/codeql.zip https://github.com/github/codeql-cli-binaries/releases/latest/download/codeql.zip
+
+    - echo "🔐 Verifying CodeQL bundle checksum..."
+    - cd tools
+    - sha256sum -c codeql.zip.sha256
+
+    - echo "✅ CodeQL checksum verification passed"
 
 # -------------------------
 # 🔍 CodeQL Python Scan
