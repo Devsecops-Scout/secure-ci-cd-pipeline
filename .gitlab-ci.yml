@@ -82,8 +82,7 @@ trivy-scan:
 # -------------------------
 # 🔧 CodeQL Setup 
 # -------------------------
-verify_codeql:
-  stage: verify
+codeql_setup:
   script:
     - echo "📦 Downloading CodeQL bundle..."
     - mkdir -p tools
