@@ -18,6 +18,7 @@ variables:
   DOCKER_IMAGE: "ghcr.io/Devsecops-Scout/secure-ci-cd-pipeline:$IMAGE_TAG"
   CODEQL_HOME: "$CI_PROJECT_DIR/codeql"
   CODEQL_EXTRACTOR_PYTHON_SCRATCH_DIR: "$CI_PROJECT_DIR/codeql-scratch"
+  CODEQL_EXTRACTOR_PYTHON_SCRATCH_DIR: "/tmp/codeql-python"
   CODEQL_LANG: python
   CODEQL_DB: codeql-db
 
