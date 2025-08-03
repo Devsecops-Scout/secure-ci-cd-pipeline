@@ -29,26 +29,23 @@ codeql-setup:
   stage: prepare
   image: python:3.11-slim
   script:
-    - apt update && apt install -y unzip curl coreutils
-    - mkdir -p tools
+    - echo "🔐 Validating CodeQL bundle checksum dynamically..."
+    - echo "Expected SHA256 from file:"
+    - cat tools/codeql.zip.sha256
+    - echo "Actual SHA256 from codeql.zip:"
+    - sha256sum tools/codeql.zip
     - |
-      if [ ! -f tools/codeql.zip ]; then
-        echo "📥 CodeQL bundle not found, downloading..."
-        curl -L -o tools/codeql.zip https://github.com/github/codeql-cli-binaries/releases/latest/download/codeql.zip
-        curl -L -o tools/codeql.zip.sha256 https://github.com/github/codeql-cli-binaries/releases/latest/download/codeql.zip.sha256
+      EXPECTED=$(cut -d ' ' -f1 tools/codeql.zip.sha256)
+      ACTUAL=$(sha256sum tools/codeql.zip | cut -d ' ' -f1)
+
+      if [ "$EXPECTED" != "$ACTUAL" ]; then
+        echo "❌ Checksum mismatch!"
+        echo "Expected: $EXPECTED"
+        echo "Actual:   $ACTUAL"
+        exit 1
+      else
+        echo "✅ Checksum verification passed!"
       fi
-    - echo "🔐 Verifying CodeQL bundle checksum..."
-    - sha256sum -c tools/codeql.zip.sha256 || { echo "❌ Checksum verification failed"; exit 1; }
-    - mkdir -p "$CODEQL_HOME"
-    - unzip -q tools/codeql.zip -d "$CODEQL_HOME"
-    - mkdir -p "$CODEQL_EXTRACTOR_PYTHON_SCRATCH_DIR"
-  artifacts:
-    paths:
-      - codeql/
-      - codeql-scratch/
-      - tools/codeql.zip
-      - tools/codeql.zip.sha256
-    expire_in: 1h
 
 # -------------------------
 # 🛡️ Gitleaks Scan
