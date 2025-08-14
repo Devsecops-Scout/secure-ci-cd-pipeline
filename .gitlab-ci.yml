@@ -42,8 +42,11 @@ codeql-setup:
     - mkdir -p "$CODEQL_EXTRACTOR_PYTHON_SCRATCH_DIR"
   artifacts:
     paths:
-      - codeql/
-      - codeql-scratch/
+      - codeql/**
+      - codeql-scratch/**
+    exclude:
+      - codeql/cache/**
+      - codeql/tmp/**
     expire_in: 1h
 
 # -------------------------
@@ -98,9 +101,10 @@ codeql-python-scan:
     - echo "✅ CodeQL scan completed"
   artifacts:
     paths:
-      - results.sarif
+      - codeql/results.json
+      - codeql/summary.txt
     reports:
-      codequality: result.sarif
+      codequality: codeql/results.json
     expire_in: 1 week
   only:
     - main
