@@ -1,7 +1,7 @@
 # ----------------------------------------------------------------------------
-# GitLab CI/CD pipeline with Security Gates (WSL/DoD Compatible)
+# GitLab CI/CD Pipeline with Security Gates (WSL/DoD Compatible + SonarQube + Caching)
 # Author: DevSecOps-Scout
-# Updated: 2025-08-13
+# Updated: 2025-08-14
 # ----------------------------------------------------------------------------
 
 stages:
@@ -22,108 +22,107 @@ variables:
   CODEQL_DB: codeql-db
 
 # -------------------------
-# 🔧 CodeQL Setup
+# 🔧 CodeQL Setup (Offline + Fallback Download + Cache)
 # -------------------------
 codeql-setup:
   stage: prepare
   image: python:3.11-slim
+  cache:
+    key: codeql
+    paths:
+      - codeql/
+      - tools/codeql.zip
   script:
     - apt update && apt install -y unzip curl coreutils
     - mkdir -p tools
     - |
       if [ ! -f tools/codeql.zip ]; then
         echo "📥 Downloading CodeQL..."
-        curl -sSL -o tools/codeql.zip https://github.com/github/codeql-cli-binaries/releases/latest/download/codeql.zip
-        curl -sSL -o tools/codeql.zip.sha256 https://github.com/github/codeql-cli-binaries/releases/latest/download/codeql.zip.sha256
+        curl -L -o tools/codeql.zip https://github.com/github/codeql-cli-binaries/releases/latest/download/codeql.zip
+      else
+        echo "📦 Using cached CodeQL bundle"
       fi
-    - echo "🔐 Skipping full bundle checksum verification to avoid CI artifact issues."
+    - echo "🔐 CodeQL SHA256 (info only, no fail)"
+    - sha256sum tools/codeql.zip || true
     - mkdir -p "$CODEQL_HOME"
     - unzip -q tools/codeql.zip -d "$CODEQL_HOME"
     - mkdir -p "$CODEQL_EXTRACTOR_PYTHON_SCRATCH_DIR"
   artifacts:
     paths:
-      - codeql/**
-      - codeql-scratch/**
-    exclude:
-      - codeql/cache/**
-      - codeql/tmp/**
+      - codeql-scratch/
     expire_in: 1h
 
 # -------------------------
-# 🛡️ Gitleaks Scan
+# 🛡️ Scan Stage
 # -------------------------
-gitleaks-scan:
-  stage: scan
-  image: debian:bullseye
-  before_script:
-    - apt update && apt install -y wget grep cut unzip
-    - cd tools
-    - chmod +x gitleaks || echo "No gitleaks binary found."
-    - cd ..
-  script:
-    - echo "🔒 Running Gitleaks..."
-    - ./tools/gitleaks detect --source=. --verbose --redact || echo "No leaks found."
-  only:
-    - main
-
-# -------------------------
-# 🛡️ Trivy Scan
-# -------------------------
-trivy-scan:
-  stage: scan
-  image: debian:bullseye
-  script:
-    - echo "🛡️ Running Trivy..."
-    - apt update && apt install -y gnupg wget lsb-release apt-transport-https
-    - wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor -o /etc/apt/trusted.gpg.d/trivy.gpg
-    - echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | tee /etc/apt/sources.list.d/trivy.list
-    - apt update && apt install -y trivy
-    - trivy fs .
-  only:
-    - main
-
-# -------------------------
-# 🔍 CodeQL Python Scan
-# -------------------------
-codeql-python-scan:
+codeql-analysis: # 🔍 CodeQL Python Scan (SAST)
   stage: scan
   image: python:3.11-slim
+  cache:
+    key: codeql-db
+    paths:
+      - codeql-db/
   variables:
     PATH: "$CODEQL_HOME/codeql:$PATH"
   dependencies:
     - codeql-setup
   script:
-    - echo "🔎 Starting CodeQL Python scan..."
-    - codeql version
-    - mkdir -p codeql-workspace
-    - codeql database create codeql-workspace/$CODEQL_DB --language=$CODEQL_LANG --source-root=. --command="pip install -r requirements.txt"
-    - codeql database analyze codeql-workspace/$CODEQL_DB "$CODEQL_HOME/codeql/queries/$CODEQL_LANG" --format=sarifv2.1.0 --output=codeql-report.sarif
-    - echo "✅ CodeQL scan completed"
+    - mkdir -p codeql-db codeql-scratch
+    - codeql database create codeql-db --language=$CODEQL_LANG --source-root=.
+    - codeql database analyze codeql-db "$CODEQL_HOME/codeql/queries/$CODEQL_LANG" --format=sarif-latest --output=codeql-scratch/codeql-results.sarif
   artifacts:
     paths:
-      - codeql/results.json
-      - codeql/summary.txt
+      - codeql-scratch/codeql-results.sarif
     reports:
-      codequality: codeql/results.json
+      sast: codeql-scratch/codeql-results.sarif
     expire_in: 1 week
-  only:
-    - main
 
-# -------------------------
-# 📊 SonarQube Analysis
-# -------------------------
-sonarqube-scan:
+gitleaks-scan: # 🛡️ Gitleaks Scan (SAST SARIF)
   stage: scan
-  image: sonarsource/sonar-scanner-cli:latest
+  image: debian:bullseye
+  before_script:
+    - apt update && apt install -y wget unzip jq
+    - cd tools && chmod +x gitleaks && cd ..
   script:
-    - echo "📊 Running SonarQube scan..."
+    - ./tools/gitleaks detect --source=. --report-format=json --report-path=gitleaks.json
+    - gitleaks convert --sarif -i gitleaks.json -o gitleaks.sarif
+  artifacts:
+    paths:
+      - gitleaks.sarif
+    reports:
+      sast: gitleaks.sarif
+    expire_in: 1 week
+
+trivy-scan: # 🛡️ Trivy Scan (Dependency Scanning)
+  stage: scan
+  image: aquasec/trivy:latest
+  script:
+    - trivy fs --security-checks vuln --format sarif --output trivy.sarif .
+  artifacts:
+    paths:
+      - trivy.sarif
+    reports:
+      dependency_scanning: trivy.sarif
+    expire_in: 1 week
+
+sonarqube-analysis: # 🟢 SonarQube Analysis (Code Quality)
+  stage: scan
+  image:
+    name: sonarsource/sonar-scanner-cli:latest
+    entrypoint: [""]
+  script:
     - sonar-scanner \
-        -Dsonar.projectKey="$SONAR_PROJECT_KEY" \
+        -Dsonar.projectKey=$SONAR_PROJECT_KEY \
         -Dsonar.sources=. \
-        -Dsonar.host.url="$SONAR_HOST_URL" \
-        -Dsonar.login="$SONAR_TOKEN"
-  only:
-    - main
+        -Dsonar.host.url=$SONAR_HOST_URL \
+        -Dsonar.login=$SONAR_TOKEN \
+        -Dsonar.report.export.path=sonar-report.json
+  artifacts:
+    paths:
+      - sonar-report.json
+    reports:
+      codequality: sonar-report.json
+    expire_in: 1 week
 
 # -------------------------
 # 🛠️ Docker Build & Push
@@ -136,19 +135,26 @@ build:
   before_script:
     - echo "$DOCKER_PASSWORD" | docker login ghcr.io -u "$DOCKER_USERNAME" --password-stdin
   script:
-    - echo "🛠️ Building Docker image..."
     - docker build -t $DOCKER_IMAGE .
     - docker push $DOCKER_IMAGE
 
 # -------------------------
-# ✅ Run Python Tests
+# ✅ Run Python Tests (with Cache)
 # -------------------------
 test:
   stage: test
   image: python:3.11
-  script:
-    - echo "🔬 Running Python unit tests..."
+  cache:
+    key: python-deps
+    paths:
+      - .venv/
+      - ~/.cache/pip
+  before_script:
+    - python3 -m venv .venv
+    - source .venv/bin/activate
+    - pip install --upgrade pip
     - pip install -r requirements.txt
+  script:
     - pytest || echo "⚠️ No tests found or all passed."
 
 # -------------------------
@@ -166,11 +172,6 @@ validate:
       else
         echo "⚠️ Skipping validation: no directory terraform/$CI_ENVIRONMENT_NAME"
       fi
-  only:
-    refs:
-      - dev
-      - staging
-      - main
   environment:
     name: $CI_COMMIT_REF_NAME
 
@@ -181,39 +182,27 @@ plan:
   stage: plan
   image: hashicorp/terraform:1.7.5
   script:
-    - |
-      cd terraform/$CI_ENVIRONMENT_NAME || exit 0
-      terraform init -input=false
-      terraform workspace select $CI_ENVIRONMENT_NAME || terraform workspace new $CI_ENVIRONMENT_NAME
-      terraform plan -input=false -out=tfplan
+    - cd terraform/$CI_ENVIRONMENT_NAME || exit 0
+    - terraform init -input=false
+    - terraform workspace select $CI_ENVIRONMENT_NAME || terraform workspace new $CI_ENVIRONMENT_NAME
+    - terraform plan -input=false -out=tfplan
   artifacts:
     paths:
       - terraform/$CI_ENVIRONMENT_NAME/tfplan
-  only:
-    refs:
-      - dev
-      - staging
-      - main
   environment:
     name: $CI_COMMIT_REF_NAME
 
 # -------------------------
-# 🚀 Terraform Deploy to Environment (Manual)
+# 🚀 Terraform Deploy (Manual)
 # -------------------------
 deploy:
   stage: deploy
   image: hashicorp/terraform:1.7.5
   script:
-    - |
-      cd terraform/$CI_ENVIRONMENT_NAME || exit 0
-      terraform init -input=false
-      terraform workspace select $CI_ENVIRONMENT_NAME || terraform workspace new $CI_ENVIRONMENT_NAME
-      terraform apply -input=false -auto-approve tfplan
-  only:
-    refs:
-      - dev
-      - staging
-      - main
+    - cd terraform/$CI_ENVIRONMENT_NAME || exit 0
+    - terraform init -input=false
+    - terraform workspace select $CI_ENVIRONMENT_NAME || terraform workspace new $CI_ENVIRONMENT_NAME
+    - terraform apply -input=false -auto-approve tfplan
   environment:
     name: $CI_COMMIT_REF_NAME
   when: manual
