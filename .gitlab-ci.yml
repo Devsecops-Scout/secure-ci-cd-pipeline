@@ -98,9 +98,9 @@ codeql-python-scan:
     - echo "✅ CodeQL scan completed"
   artifacts:
     paths:
-      - codeql-analysis/*.sarif
+      - results.sarif
     reports:
-      codequality: codeql-analysis/result.sarif
+      codequality: result.sarif
     expire_in: 1 week
   only:
     - main
