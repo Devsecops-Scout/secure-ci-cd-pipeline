@@ -41,6 +41,7 @@ This project demonstrates a secure, automated CI/CD pipeline with integrated sca
 ## 📊 Architecture
 
 ![Pipeline Architecture](./diagrams/secure-pipeline-arch.drawio)
+![Pipeline Architecture](./screenshots/pipeline-flow.png)
 
 ---
 

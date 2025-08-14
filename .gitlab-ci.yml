@@ -24,7 +24,7 @@ variables:
   SONAR_LOGIN: "$SONAR_TOKEN"
 
 # -------------------------
-# 🔧 Prepare Tools
+# 🔧 Prepare Tools (cached)
 # -------------------------
 prepare-tools:
   stage: prepare
@@ -41,10 +41,10 @@ prepare-tools:
     - unzip -q tools/codeql.zip -d "$CODEQL_HOME"
     - curl -L -o tools/gitleaks https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks-linux-amd64
     - chmod +x tools/gitleaks
-  artifacts:
+  cache:
+    key: tools-cache
     paths:
       - tools/
-    expire_in: 1h
 
 # -------------------------
 # 🛡️ Scan Stage (Parallel Jobs)
@@ -53,6 +53,10 @@ gitleaks-scan:
   stage: scan
   image: debian:bullseye
   needs: ["prepare-tools"]
+  cache:
+    key: tools-cache
+    paths:
+      - tools/
   script:
     - echo "🔒 Running Gitleaks..."
     - ./tools/gitleaks detect --source=. --verbose --redact --report-format=sarif --report-path=gitleaks.sarif || true
@@ -67,6 +71,10 @@ trivy-scan:
   stage: scan
   image: aquasec/trivy:0.46.3
   needs: ["prepare-tools"]
+  cache:
+    key: tools-cache
+    paths:
+      - tools/
   script:
     - echo "🛡️ Running Trivy..."
     - trivy fs --security-checks vuln,config --format sarif --output trivy.sarif .
@@ -83,6 +91,10 @@ codeql-python-scan:
   needs: ["prepare-tools"]
   variables:
     PATH: "$CODEQL_HOME/codeql:$PATH"
+  cache:
+    key: tools-cache
+    paths:
+      - tools/
   script:
     - echo "🔎 Running CodeQL Python scan..."
     - codeql version
@@ -100,6 +112,10 @@ sonarqube-scan:
   stage: scan
   image: sonarsource/sonar-scanner-cli:5.12.0.22497
   needs: ["prepare-tools"]
+  cache:
+    key: tools-cache
+    paths:
+      - tools/
   script:
     - sonar-scanner -Dsonar.projectKey=$CI_PROJECT_NAME -Dsonar.sources=. -Dsonar.host.url=$SONAR_HOST_URL -Dsonar.login=$SONAR_LOGIN -Dsonar.sarif.reportPaths=sonar-report.json
   artifacts:
