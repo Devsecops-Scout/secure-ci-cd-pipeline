@@ -24,7 +24,7 @@ variables:
   SONAR_LOGIN: "$SONAR_TOKEN"
 
 # -------------------------
-# 🔧 Prepare Tools (cached)
+# 🔧 Prepare Tools (cached, fixed unzip)
 # -------------------------
 prepare-tools:
   stage: prepare
@@ -37,10 +37,22 @@ prepare-tools:
         echo "📥 Downloading CodeQL..."
         curl -L -o tools/codeql.zip https://github.com/github/codeql-cli-binaries/releases/latest/download/codeql.zip
       fi
+    # Ensure CODEQL_HOME is clean
+    - rm -rf "$CODEQL_HOME"
     - mkdir -p "$CODEQL_HOME" "$CODEQL_EXTRACTOR_PYTHON_SCRATCH_DIR"
-    - unzip -q tools/codeql.zip -d "$CODEQL_HOME"
+    # Unzip with overwrite to avoid interactive prompts
+    - unzip -oq tools/codeql.zip -d "$CODEQL_HOME"
     - curl -L -o tools/gitleaks https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks-linux-amd64
     - chmod +x tools/gitleaks
+  cache:
+    key: tools-cache
+    paths:
+      - tools/
+
+# -------------------------
+# Helper command for downstream jobs
+# -------------------------
+.extract-tools: &extract-tools
   cache:
     key: tools-cache
     paths:
@@ -53,10 +65,7 @@ gitleaks-scan:
   stage: scan
   image: debian:bullseye
   needs: ["prepare-tools"]
-  cache:
-    key: tools-cache
-    paths:
-      - tools/
+  <<: *extract-tools
   script:
     - echo "🔒 Running Gitleaks..."
     - ./tools/gitleaks detect --source=. --verbose --redact --report-format=sarif --report-path=gitleaks.sarif || true
@@ -71,10 +80,7 @@ trivy-scan:
   stage: scan
   image: aquasec/trivy:0.46.3
   needs: ["prepare-tools"]
-  cache:
-    key: tools-cache
-    paths:
-      - tools/
+  <<: *extract-tools
   script:
     - echo "🛡️ Running Trivy..."
     - trivy fs --security-checks vuln,config --format sarif --output trivy.sarif .
@@ -91,10 +97,7 @@ codeql-python-scan:
   needs: ["prepare-tools"]
   variables:
     PATH: "$CODEQL_HOME/codeql:$PATH"
-  cache:
-    key: tools-cache
-    paths:
-      - tools/
+  <<: *extract-tools
   script:
     - echo "🔎 Running CodeQL Python scan..."
     - codeql version
@@ -112,10 +115,7 @@ sonarqube-scan:
   stage: scan
   image: sonarsource/sonar-scanner-cli:5.12.0.22497
   needs: ["prepare-tools"]
-  cache:
-    key: tools-cache
-    paths:
-      - tools/
+  <<: *extract-tools
   script:
     - sonar-scanner -Dsonar.projectKey=$CI_PROJECT_NAME -Dsonar.sources=. -Dsonar.host.url=$SONAR_HOST_URL -Dsonar.login=$SONAR_LOGIN -Dsonar.sarif.reportPaths=sonar-report.json
   artifacts:
