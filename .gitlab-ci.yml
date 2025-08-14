@@ -33,8 +33,8 @@ codeql-setup:
     - |
       if [ ! -f tools/codeql.zip ]; then
         echo "📥 CodeQL bundle not found, downloading..."
-        curl -L -o tools/codeql.zip https://github.com/github/codeql-cli-binaries/releases/latest/download/codeql.zip
-        curl -L -o tools/codeql.zip.sha256 https://github.com/github/codeql-cli-binaries/releases/latest/download/codeql.zip.sha256
+        curl -L -o tools/codeql.zip https://github.com/github/codeql-cli-binaries/releases/download/v2.16.3/codeql.zip
+        curl -L -o tools/codeql.zip.sha256 https://github.com/github/codeql-cli-binaries/releases/download/v2.16.3/codeql.zip.sha256
       fi
     - echo "🔐 Verifying CodeQL bundle checksum..."
     - sha256sum -c tools/codeql.zip.sha256 || { echo "❌ Checksum verification failed"; exit 1; }
