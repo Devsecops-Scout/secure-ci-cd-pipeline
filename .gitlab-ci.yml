@@ -33,20 +33,20 @@ codeql-setup:
     - |
       if [ ! -f tools/codeql.zip ]; then
         echo "📥 CodeQL bundle not found, downloading..."
-        curl -L -o tools/codeql.zip https://github.com/github/codeql-cli-binaries/releases/latest/download/codeql.zip
-        curl -L -o tools/codeql.zip.sha256 https://github.com/github/codeql-cli-binaries/releases/latest/download/codeql.zip.sha256
+        curl -sSL https://github.com/github/codeql-cli-binaries/releases/latest/download/codeql.zip -o tools/codeql.zip
+        curl -sSL https://github.com/github/codeql-cli-binaries/releases/latest/download/codeql.zip.sha256 -o tools/codeql.zip.sha256
+        sed -i "s|$|  codeql.zip|" tools/codeql.zip.sha256
       fi
     - echo "🔐 Verifying CodeQL bundle checksum..."
-    - sha256sum tools/codeql.zip || true
+    - sha256sum -c tools/codeql.zip.sha256 || { echo "❌ Checksum verification failed"; exit 1; }
     - mkdir -p "$CODEQL_HOME"
     - unzip -q tools/codeql.zip -d "$CODEQL_HOME"
     - mkdir -p "$CODEQL_EXTRACTOR_PYTHON_SCRATCH_DIR"
   artifacts:
     paths:
-      - codeql/
-      - codeql-scratch/
+      - some/output
+    exclude:
       - tools/codeql.zip
-      - tools/codeql.zip.sha256
     expire_in: 1h
 
 # -------------------------
