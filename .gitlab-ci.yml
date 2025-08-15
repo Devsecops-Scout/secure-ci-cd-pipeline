@@ -192,7 +192,7 @@ build:
       echo "$DOCKER_PASSWORD" | docker login ghcr.io -u "$DOCKER_USERNAME" --password-stdin
   script:
     - echo "📦 Building Docker image..."
-    - echo "Docker image: $DOCKER_REPO:$IMAGE_TAG"
+    - echo "Docker image:$DOCKER_REPO:$IMAGE_TAG"
     - docker build -t "$DOCKER_REPO:$IMAGE_TAG" .
     - echo "🚀 Pushing Docker image to GHCR..."
     - docker push "$DOCKER_REPO:$IMAGE_TAG"
