@@ -14,7 +14,7 @@ stages:
   - deploy
 
 variables:
-  IMAGE_TAG: "$CI_COMMIT_SHORT_SHA"
+  IMAGE_TAG: "${CI_COMMIT_SHORT_SHA,,}"  # lowercase commit hash
   DOCKER_IMAGE: "ghcr.io/devsecops-scout/secure-ci-cd-pipeline:$IMAGE_TAG"
   CODEQL_HOME: "$CI_PROJECT_DIR/codeql"
   CODEQL_EXTRACTOR_PYTHON_SCRATCH_DIR: "/tmp/codeql-python"
@@ -186,13 +186,15 @@ build:
     # Fail early if credentials are missing
     - |
       if [ -z "$DOCKER_USERNAME" ] || [ -z "$DOCKER_PASSWORD" ]; then
-        echo "❌ DOCKER_USERNAME or DOCKER_PASSWORD not set"
+        echo "❌ Missing DOCKER_USERNAME or DOCKER_PASSWORD"
         exit 1
       fi
+      # Ensure repository name fallback
+      DOCKER_REPO="ghcr.io/${CI_PROJECT_NAMESPACE:-$DOCKER_USERNAME}/${CI_PROJECT_NAME,,}"
+      echo "Docker image will be: $DOCKER_REPO:$IMAGE_TAG"
       echo "$DOCKER_PASSWORD" | docker login ghcr.io -u "$DOCKER_USERNAME" --password-stdin
   script:
     - echo "📦 Building Docker image..."
-    - echo "Docker image:$DOCKER_REPO:$IMAGE_TAG"
     - docker build -t "$DOCKER_REPO:$IMAGE_TAG" .
     - echo "🚀 Pushing Docker image to GHCR..."
     - docker push "$DOCKER_REPO:$IMAGE_TAG"
