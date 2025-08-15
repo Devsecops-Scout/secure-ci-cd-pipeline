@@ -1,7 +1,7 @@
 # ----------------------------------------------------------------------------
 # GitLab CI/CD pipeline with Security Gates & Full Workflow
 # Author: DevSecOps-Scout
-# Updated: 2025-08-14
+# Updated: 2025-08-14 (version-aware downloads + change-detection)
 # ----------------------------------------------------------------------------
 
 stages:
@@ -24,26 +24,45 @@ variables:
   SONAR_LOGIN: "$SONAR_TOKEN"
 
 # -------------------------
-# 🔧 Prepare Tools (cached, fixed unzip)
+# 🔧 Prepare Tools (cached, version-aware)
 # -------------------------
 prepare-tools:
   stage: prepare
-  image: python:3.11-slim
+  image: python:3.11
   script:
-    - apt update && apt install -y unzip curl coreutils wget
+    - apt update && apt install -y unzip curl coreutils wget bash jq
     - mkdir -p tools
+
+    # ----------------------------
+    # CodeQL: download latest only if missing
+    # ----------------------------
     - |
-      if [ ! -f tools/codeql.zip ]; then
-        echo "📥 Downloading CodeQL..."
-        curl -L -o tools/codeql.zip https://github.com/github/codeql-cli-binaries/releases/latest/download/codeql.zip
+      CODEQL_LATEST_TAG=$(curl -s https://api.github.com/repos/github/codeql-cli-binaries/releases/latest | jq -r '.tag_name')
+      CODEQL_ZIP=tools/codeql-$CODEQL_LATEST_TAG.zip
+      if [ ! -f "$CODEQL_ZIP" ]; then
+        echo "📥 Downloading CodeQL $CODEQL_LATEST_TAG..."
+        curl -L -o "$CODEQL_ZIP" "https://github.com/github/codeql-cli-binaries/releases/download/$CODEQL_LATEST_TAG/codeql.zip"
+      else
+        echo "✅ CodeQL $CODEQL_LATEST_TAG already downloaded."
       fi
-    # Ensure CODEQL_HOME is clean
     - rm -rf "$CODEQL_HOME"
     - mkdir -p "$CODEQL_HOME" "$CODEQL_EXTRACTOR_PYTHON_SCRATCH_DIR"
-    # Unzip with overwrite to avoid interactive prompts
-    - unzip -oq tools/codeql.zip -d "$CODEQL_HOME"
-    - curl -L -o tools/gitleaks https://github.com/gitleaks/gitleaks/releases/latest/download/gitleaks-linux-amd64
-    - chmod +x tools/gitleaks
+    - unzip -oq "$CODEQL_ZIP" -d "$CODEQL_HOME"
+
+    # ----------------------------
+    # Gitleaks: download latest only if missing
+    # ----------------------------
+    - |
+      GITLEAKS_LATEST_TAG=$(curl -s https://api.github.com/repos/gitleaks/gitleaks/releases/latest | jq -r '.tag_name')
+      GITLEAKS_BIN=tools/gitleaks-$GITLEAKS_LATEST_TAG
+      if [ ! -f "$GITLEAKS_BIN" ]; then
+        echo "📥 Downloading Gitleaks $GITLEAKS_LATEST_TAG..."
+        curl -L -o "$GITLEAKS_BIN" "https://github.com/gitleaks/gitleaks/releases/download/$GITLEAKS_LATEST_TAG/gitleaks-linux-amd64"
+        chmod +x "$GITLEAKS_BIN"
+      else
+        echo "✅ Gitleaks $GITLEAKS_LATEST_TAG already downloaded."
+      fi
+    - ln -sf "$GITLEAKS_BIN" tools/gitleaks  # symlink for consistent path
   cache:
     key: tools-cache
     paths:
@@ -66,9 +85,18 @@ gitleaks-scan:
   image: debian:bullseye
   needs: ["prepare-tools"]
   <<: *extract-tools
+  rules:
+    - changes:
+        - "**/*.py"
+        - "**/*.js"
+        - "**/*.ts"
+        - "**/*.go"
+        - "**/*.java"
+      when: always
+    - when: never
   script:
     - echo "🔒 Running Gitleaks..."
-    - ./tools/gitleaks detect --source=. --verbose --redact --report-format=sarif --report-path=gitleaks.sarif || true
+    - ./tools/gitleaks detect --source=. --verbose --redact --report-format=sarif --report-path=./gitleaks.sarif || true
   artifacts:
     paths:
       - gitleaks.sarif
@@ -78,12 +106,18 @@ gitleaks-scan:
 
 trivy-scan:
   stage: scan
-  image: aquasec/trivy:0.46.3
+  image: aquasec/trivy:0.48.0
   needs: ["prepare-tools"]
   <<: *extract-tools
+  rules:
+    - changes:
+        - "Dockerfile"
+        - "docker/**"
+      when: always
+    - when: never
   script:
     - echo "🛡️ Running Trivy..."
-    - trivy fs --security-checks vuln,config --format sarif --output trivy.sarif .
+    - trivy fs --security-checks vuln,config --format sarif --output=./trivy.sarif .
   artifacts:
     paths:
       - trivy.sarif
@@ -93,17 +127,22 @@ trivy-scan:
 
 codeql-python-scan:
   stage: scan
-  image: python:3.11-slim
+  image: python:3.11
   needs: ["prepare-tools"]
   variables:
     PATH: "$CODEQL_HOME/codeql:$PATH"
   <<: *extract-tools
+  rules:
+    - changes:
+        - "**/*.py"
+      when: always
+    - when: never
   script:
     - echo "🔎 Running CodeQL Python scan..."
     - codeql version
     - mkdir -p codeql-workspace
     - codeql database create codeql-workspace/$CODEQL_DB --language=$CODEQL_LANG --source-root=. --command="pip install -r requirements.txt"
-    - codeql database analyze codeql-workspace/$CODEQL_DB "$CODEQL_HOME/codeql/queries/$CODEQL_LANG" --format=sarifv2.1.0 --output=codeql-report.sarif
+    - codeql database analyze codeql-workspace/$CODEQL_DB "$CODEQL_HOME/codeql/queries/$CODEQL_LANG" --format=sarifv2.1.0 --output=./codeql-report.sarif
   artifacts:
     paths:
       - codeql-report.sarif
@@ -113,11 +152,20 @@ codeql-python-scan:
 
 sonarqube-scan:
   stage: scan
-  image: sonarsource/sonar-scanner-cli:5.12.0.22497
+  image: sonarsource/sonar-scanner-cli:5.15.0.36234-latest
   needs: ["prepare-tools"]
   <<: *extract-tools
+  rules:
+    - changes:
+        - "**/*.py"
+        - "**/*.js"
+        - "**/*.ts"
+        - "**/*.go"
+        - "**/*.java"
+      when: always
+    - when: never
   script:
-    - sonar-scanner -Dsonar.projectKey=$CI_PROJECT_NAME -Dsonar.sources=. -Dsonar.host.url=$SONAR_HOST_URL -Dsonar.login=$SONAR_LOGIN -Dsonar.sarif.reportPaths=sonar-report.json
+    - sonar-scanner -Dsonar.projectKey=$CI_PROJECT_NAME -Dsonar.sources=. -Dsonar.host.url=$SONAR_HOST_URL -Dsonar.login=$SONAR_LOGIN -Dsonar.sarif.reportPaths=./sonar-report.json
   artifacts:
     paths:
       - sonar-report.json
