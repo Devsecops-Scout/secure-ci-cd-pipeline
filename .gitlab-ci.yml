@@ -80,7 +80,7 @@ prepare-tools:
 # -------------------------
 # 🛡️ Scan Stage (Parallel Jobs)
 # -------------------------
-gitleaks-scan:
+gitleaks-scan: # Scan SAST SARIF
   stage: scan
   image: debian:bullseye
   needs: ["prepare-tools"]
@@ -104,7 +104,7 @@ gitleaks-scan:
       codequality: gitleaks.sarif
     expire_in: 1 week
 
-trivy-scan:
+trivy-scan: # Scan Dependency
   stage: scan
   image: aquasec/trivy:0.48.0
   needs: ["prepare-tools"]
@@ -125,7 +125,7 @@ trivy-scan:
       codequality: trivy.sarif
     expire_in: 1 week
 
-codeql-python-scan:
+codeql-python-scan: # Scan SAST
   stage: scan
   image: python:3.11
   needs: ["prepare-tools"]
@@ -150,7 +150,7 @@ codeql-python-scan:
       codequality: codeql-report.sarif
     expire_in: 1 week
 
-sonarqube-scan:
+sonarqube-scan: # Analysis Code Quality
   stage: scan
   image: sonarsource/sonar-scanner-cli:5.15.0.36234-latest
   needs: ["prepare-tools"]
@@ -183,13 +183,15 @@ build:
   services:
     - docker:25.0.3-dind
   before_script:
+    - apk add --no-cache bash
+    - bash -c '
     # Fail early if credentials are missing
     - |
       if [ -z "$DOCKER_USERNAME" ] || [ -z "$DOCKER_PASSWORD" ]; then
         echo "❌ Missing DOCKER_USERNAME or DOCKER_PASSWORD"
         exit 1
       fi
-      # Ensure repository name fallback
+      # GHCR-compliant repository name
       DOCKER_REPO="ghcr.io/${CI_PROJECT_NAMESPACE:-$DOCKER_USERNAME}/${CI_PROJECT_NAME,,}"
       echo "Docker image will be: $DOCKER_REPO:$IMAGE_TAG"
       echo "$DOCKER_PASSWORD" | docker login ghcr.io -u "$DOCKER_USERNAME" --password-stdin
