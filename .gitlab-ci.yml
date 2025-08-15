@@ -1,7 +1,7 @@
 # ----------------------------------------------------------------------------
 # GitLab CI/CD pipeline with Security Gates & Full Workflow
 # Author: DevSecOps-Scout
-# Updated: 2025-08-14 (version-aware downloads + change-detection)
+# Updated: 2025-08-14 
 # ----------------------------------------------------------------------------
 
 stages:
@@ -80,7 +80,7 @@ prepare-tools:
 # -------------------------
 # 🛡️ Scan Stage (Parallel Jobs)
 # -------------------------
-gitleaks-scan: # Scan SAST SARIF
+gitleaks-scan: # Scan for SAST SARIF
   stage: scan
   image: debian:bullseye
   needs: ["prepare-tools"]
@@ -104,9 +104,9 @@ gitleaks-scan: # Scan SAST SARIF
       codequality: gitleaks.sarif
     expire_in: 1 week
 
-trivy-scan: # Scan Dependency
+trivy-scan: # Scan for Dependency
   stage: scan
-  image: aquasec/trivy:0.48.0
+  image: aquasec/trivy:0.45.0
   needs: ["prepare-tools"]
   <<: *extract-tools
   rules:
@@ -125,7 +125,7 @@ trivy-scan: # Scan Dependency
       codequality: trivy.sarif
     expire_in: 1 week
 
-codeql-python-scan: # Scan SAST
+codeql-python-scan: # Scan for SAST
   stage: scan
   image: python:3.11
   needs: ["prepare-tools"]
