@@ -104,7 +104,7 @@ gitleaks-scan: # Scan for SAST SARIF
       codequality: gitleaks.sarif
     expire_in: 1 week
 
-trivy-scan: # Scan for Dependency
+trivy-fs-scan: # Scan for Dependency
   stage: scan
   image: aquasec/trivy:0.45.0
   needs: ["prepare-tools"]
@@ -116,13 +116,27 @@ trivy-scan: # Scan for Dependency
       when: always
     - when: never
   script:
-    - echo "🛡️ Running Trivy..."
-    - trivy fs --security-checks vuln,config --format sarif --output=./trivy.sarif .
+    - echo "🛡️ Running Trivy filesystem scan..."
+    - trivy fs --security-checks vuln,config --format sarif --output trivy-fs.sarif .
   artifacts:
     paths:
-      - trivy.sarif
+      - trivy-fs.sarif
     reports:
-      codequality: trivy.sarif
+      codequality: trivy-fs.sarif
+    expire_in: 1 week
+
+trivy-image-scan:
+  stage: scan
+  image: aquasec/trivy:0.45.0
+  needs: ["build"]
+  script:
+    - echo "🐳 Running Trivy Docker image scan..."
+    - trivy image --format sarif --output trivy-image.sarif "$DOCKER_REPO:$IMAGE_TAG"
+  artifacts:
+    paths:
+      - trivy-image.sarif
+    reports:
+      codequality: trivy-image.sarif
     expire_in: 1 week
 
 codeql-python-scan: # Scan for SAST
